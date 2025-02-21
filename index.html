@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>バスケフリースローゲーム（ゲージ速度変化・ボール複数表示）</title>
+  <title>バスケフリースローゲーム - イップス機能付き</title>
   <style>
     /* 全体レイアウト */
     body {
@@ -37,6 +37,7 @@
     }
     #scoreBoard { left: 10px; }
     #timer { right: 10px; }
+
     /* ゲージ関連 */
     #gaugeContainer {
       position: absolute;
@@ -75,6 +76,7 @@
       background: red;
       z-index: 3;
     }
+
     /* プレイヤー */
     #player {
       position: absolute;
@@ -86,6 +88,19 @@
       border-radius: 10px;
       z-index: 1;
     }
+    /* 震えるアニメーション */
+    @keyframes shake {
+      0%   { transform: translate(0, 0); }
+      20%  { transform: translate(-3px, 0); }
+      40%  { transform: translate(3px, 0); }
+      60%  { transform: translate(-3px, 0); }
+      80%  { transform: translate(3px, 0); }
+      100% { transform: translate(0, 0); }
+    }
+    .shaking {
+      animation: shake 0.5s infinite;
+    }
+
     /* バスケットゴール */
     #hoop {
       position: absolute;
@@ -98,6 +113,7 @@
       border-radius: 50% 50% 0 0;
       z-index: 1;
     }
+
     /* ボール（テンプレートとして非表示、クローンして利用） */
     #ball {
       position: absolute;
@@ -110,6 +126,7 @@
       display: none;
       z-index: 999; /* 常に最前面 */
     }
+
     /* シュート結果メッセージ */
     #resultMessage {
       position: absolute;
@@ -123,6 +140,7 @@
       z-index: 5;
       transition: opacity 0.5s;
     }
+
     /* ポップアップ（初回＆終了時） */
     #popup {
       display: block;
@@ -152,6 +170,7 @@
     #restartButton {
       display: none;
     }
+
     /* シュートボタン */
     #shootButton {
       margin-top: 20px;
@@ -195,6 +214,7 @@
     // ===== ゲーム用変数 =====
     let score, timeLeft, gaugeValue, gaugeDirection;
     let gaugeInterval, timerInterval;
+    let failCount = 0; // シュート失敗回数
     const gaugeSpeedBase = 1; // 基本スピード
 
     // HTML要素の取得
@@ -211,6 +231,7 @@
     const hoop         = document.getElementById('hoop');
     const bgm          = document.getElementById('bgm');
     const resultMessage= document.getElementById('resultMessage');
+    const player       = document.getElementById('player');
 
     // ===== 初期化関数 =====
     function initGame() {
@@ -218,6 +239,8 @@
       timeLeft = 60;
       gaugeValue = 0;
       gaugeDirection = 1;
+      failCount = 0;
+
       scoreBoard.textContent = 'スコア: ' + score;
       timerDisplay.textContent = timeLeft;
       shootButton.disabled = false;
@@ -286,7 +309,7 @@
       }
     }
 
-    // ===== シュートボタン押下時 =====
+    // ===== シュートボタン押下 =====
     shootButton.addEventListener('click', () => {
       if (timeLeft <= 0) return;
       playBGM();
@@ -299,7 +322,7 @@
       const startY = 90;
       newBall.style.left = startX + 'px';
       newBall.style.bottom = startY + 'px';
-      // クローンはゲームコンテナに追加
+      // クローンをコンテナに追加
       gameContainer.appendChild(newBall);
 
       // ゴールの目標座標計算
@@ -340,16 +363,47 @@
     function judgeShot() {
       const probability = getSuccessProbability(gaugeValue);
       if (Math.random() < probability) {
+        // 成功
         score++;
         scoreBoard.textContent = 'スコア: ' + score;
         resultMessage.textContent = "Shoot!";
       } else {
+        // 失敗
+        failCount++;
         resultMessage.textContent = "False...";
+        // 10回失敗したらイップス
+        if (failCount >= 10) {
+          triggerYips();
+        }
       }
+      // メッセージ表示（フェードアウト）
       resultMessage.style.opacity = "1";
       setTimeout(() => {
         resultMessage.style.opacity = "0";
       }, 800);
+    }
+
+    // ===== イップス処理 =====
+    function triggerYips() {
+      // 失敗カウントをリセット（何度でも発動可能にする場合）
+      failCount = 0;
+
+      // プレイヤーを震えさせる
+      player.classList.add('shaking');
+
+      // シュートボタンを3秒無効化
+      shootButton.disabled = true;
+
+      // 画面中央に「Yipping...」を3秒表示
+      resultMessage.textContent = "Yipping...";
+      resultMessage.style.opacity = "1";
+
+      setTimeout(() => {
+        // 3秒後に震え解除＆ボタン有効化＆メッセージ非表示
+        player.classList.remove('shaking');
+        shootButton.disabled = false;
+        resultMessage.style.opacity = "0";
+      }, 3000);
     }
 
     // ===== 再スタート =====
