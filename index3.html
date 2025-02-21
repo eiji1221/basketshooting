@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>バスケフリースローゲーム（ゲージ速度変化・ボール複数表示）</title>
+  <style>
+    /* 全体レイアウト */
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: sans-serif;
+      background: #e0e0e0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    h1 {
+      margin-top: 20px;
+    }
+    /* ゲームコンテナ */
+    #gameContainer {
+      position: relative;
+      width: 320px;
+      height: 480px;
+      background: #fff;
+      border: 2px solid #333;
+      margin-top: 20px;
+      overflow: hidden;
+    }
+    /* スコア・タイマー表示 */
+    #scoreBoard, #timer {
+      position: absolute;
+      top: 10px;
+      font-size: 16px;
+      z-index: 2;
+    }
+    #scoreBoard { left: 10px; }
+    #timer { right: 10px; }
+    /* ゲージ関連 */
+    #gaugeContainer {
+      position: absolute;
+      left: 10px;
+      top: 60px;
+      width: 40px;
+      height: 200px;
+      border: 2px solid #333;
+      background: #ddd;
+      z-index: 2;
+    }
+    #orangeZone {
+      position: absolute;
+      left: 0;
+      width: 100%;
+      top: 76px;    /* ゲージ値40に対応 */
+      height: 38px; /* ゲージ値40〜60に対応 */
+      background: orange;
+      opacity: 0.4;
+      z-index: 1;
+    }
+    #centerLine {
+      position: absolute;
+      left: 0;
+      width: 100%;
+      top: 95px;  /* ゲージ値50に対応 */
+      height: 2px;
+      background: black;
+      z-index: 2;
+    }
+    #gauge {
+      position: absolute;
+      left: 0;
+      width: 100%;
+      height: 10px;
+      background: red;
+      z-index: 3;
+    }
+    /* プレイヤー */
+    #player {
+      position: absolute;
+      bottom: 20px;
+      left: 20px;
+      width: 60px;
+      height: 120px;
+      background: #555;
+      border-radius: 10px;
+      z-index: 1;
+    }
+    /* バスケットゴール */
+    #hoop {
+      position: absolute;
+      top: 60px;
+      right: 20px;
+      width: 80px;
+      height: 40px;
+      border: 5px solid orange;
+      border-top: none;
+      border-radius: 50% 50% 0 0;
+      z-index: 1;
+    }
+    /* ボール（テンプレートとして非表示、クローンして利用） */
+    #ball {
+      position: absolute;
+      bottom: 90px;
+      left: 50px;
+      width: 20px;
+      height: 20px;
+      background: orange;
+      border-radius: 50%;
+      display: none;
+      z-index: 999; /* 常に最前面 */
+    }
+    /* シュート結果メッセージ */
+    #resultMessage {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 14px;
+      color: #333;
+      opacity: 0;
+      pointer-events: none;
+      z-index: 5;
+      transition: opacity 0.5s;
+    }
+    /* ポップアップ（初回＆終了時） */
+    #popup {
+      display: block;
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(0,0,0,0.8);
+      color: #fff;
+      padding: 16px;
+      border-radius: 10px;
+      font-size: 14px;
+      line-height: 1.4;
+      text-align: center;
+      z-index: 10;
+      max-width: 260px;
+      width: 80%;
+      box-sizing: border-box;
+    }
+    #startButton,
+    #restartButton {
+      margin-top: 10px;
+      padding: 6px 14px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    #restartButton {
+      display: none;
+    }
+    /* シュートボタン */
+    #shootButton {
+      margin-top: 20px;
+      padding: 8px 16px;
+      font-size: 16px;
+    }
+  </style>
+</head>
+<body>
+  <h1>バスケフリースローゲーム</h1>
+  <div id="gameContainer">
+    <div id="scoreBoard">スコア: 0</div>
+    <div id="timer">60</div>
+    <div id="gaugeContainer">
+      <div id="orangeZone"></div>
+      <div id="centerLine"></div>
+      <div id="gauge"></div>
+    </div>
+    <div id="player"></div>
+    <div id="hoop"></div>
+    <!-- ボールのテンプレート -->
+    <div id="ball"></div>
+    <div id="resultMessage"></div>
+    <div id="popup">
+      <div id="popupMessage">
+        <strong>【遊び方】</strong><br>
+        シュートボタンを押してシュート！<br>
+        ゲージが中央に近いほど成功率アップ！<br>
+        1分間チャレンジして得点を競おう！
+      </div>
+      <button id="startButton">ゲーム開始</button>
+      <button id="restartButton">もう一度遊ぶ</button>
+    </div>
+  </div>
+  <button id="shootButton">シュート！</button>
+  
+  <!-- BGM：無料音源（bgm.mp3）を適宜差し替えてください -->
+  <audio id="bgm" src="bgm.mp3" loop></audio>
+
+  <script>
+    // ===== ゲーム用変数 =====
+    let score, timeLeft, gaugeValue, gaugeDirection;
+    let gaugeInterval, timerInterval;
+    const gaugeSpeedBase = 1; // 基本スピード
+
+    // HTML要素の取得
+    const scoreBoard   = document.getElementById('scoreBoard');
+    const timerDisplay = document.getElementById('timer');
+    const gauge        = document.getElementById('gauge');
+    const ballTemplate = document.getElementById('ball'); // テンプレート用
+    const shootButton  = document.getElementById('shootButton');
+    const popup        = document.getElementById('popup');
+    const popupMessage = document.getElementById('popupMessage');
+    const startButton  = document.getElementById('startButton');
+    const restartButton= document.getElementById('restartButton');
+    const gameContainer= document.getElementById('gameContainer');
+    const hoop         = document.getElementById('hoop');
+    const bgm          = document.getElementById('bgm');
+    const resultMessage= document.getElementById('resultMessage');
+
+    // ===== 初期化関数 =====
+    function initGame() {
+      score = 0;
+      timeLeft = 60;
+      gaugeValue = 0;
+      gaugeDirection = 1;
+      scoreBoard.textContent = 'スコア: ' + score;
+      timerDisplay.textContent = timeLeft;
+      shootButton.disabled = false;
+      popup.style.display = 'none';
+      resultMessage.style.opacity = "0";
+
+      // ゲージ・タイマーの再設定
+      gaugeInterval = setInterval(updateGauge, 10);
+      timerInterval = setInterval(timerTick, 1000);
+    }
+
+    // ===== ゲージの更新 =====
+    function updateGauge() {
+      // 残り時間に応じた速度 (timeLeft:60秒で1, 0秒で2)
+      const currentGaugeSpeed = gaugeSpeedBase + ((60 - timeLeft) / 60);
+      gaugeValue += gaugeDirection * currentGaugeSpeed;
+      if (gaugeValue >= 100) {
+        gaugeValue = 100;
+        gaugeDirection = -1;
+      } else if (gaugeValue <= 0) {
+        gaugeValue = 0;
+        gaugeDirection = 1;
+      }
+      const containerHeight = 200;
+      const gaugeHeight = 10;
+      const maxTop = containerHeight - gaugeHeight;
+      const topPos = maxTop * (gaugeValue / 100);
+      gauge.style.top = topPos + 'px';
+    }
+
+    // ===== タイマー処理 =====
+    function timerTick() {
+      timeLeft--;
+      if (timeLeft < 0) { timeLeft = 0; }
+      timerDisplay.textContent = timeLeft;
+      if (timeLeft <= 0) {
+        clearInterval(timerInterval);
+        clearInterval(gaugeInterval);
+        shootButton.disabled = true;
+        popupMessage.innerHTML = '終了！<br>総合得点: ' + score;
+        startButton.style.display = 'none';
+        restartButton.style.display = 'inline-block';
+        popup.style.display = 'block';
+      }
+    }
+
+    // ===== シュート成功率計算 =====
+    function getSuccessProbability(g) {
+      if (g < 40) {
+        return (0.60 / 40) * g;
+      } else if (g < 50) {
+        return 0.60 + 0.04 * (g - 40);
+      } else if (g < 60) {
+        return 1.0 - 0.04 * (g - 50);
+      } else {
+        return 0.60 + (-0.015) * (g - 60);
+      }
+    }
+
+    // ===== BGM再生 =====
+    function playBGM() {
+      if (bgm.paused) {
+        bgm.play().catch((error) => {
+          console.log("BGM再生エラー:", error);
+        });
+      }
+    }
+
+    // ===== シュートボタン押下時 =====
+    shootButton.addEventListener('click', () => {
+      if (timeLeft <= 0) return;
+      playBGM();
+      
+      // クローンを作成して新たなボールとして利用
+      const newBall = ballTemplate.cloneNode(true);
+      newBall.style.display = 'block';
+      // 初期位置設定
+      const startX = 50;
+      const startY = 90;
+      newBall.style.left = startX + 'px';
+      newBall.style.bottom = startY + 'px';
+      // クローンはゲームコンテナに追加
+      gameContainer.appendChild(newBall);
+
+      // ゴールの目標座標計算
+      const hoopRect = hoop.getBoundingClientRect();
+      const containerRect = gameContainer.getBoundingClientRect();
+      const targetX = (hoopRect.left + hoopRect.width / 2) - containerRect.left - (newBall.offsetWidth / 2);
+      const hoopTopInContainer = hoopRect.top - containerRect.top;
+      const targetBottom = gameContainer.clientHeight - (hoopTopInContainer + hoopRect.height / 2);
+
+      const g = 600;
+      const flightTime = 1.2;
+      const dx = targetX - startX;
+      const dy = targetBottom - startY;
+      const v0x = dx / flightTime;
+      const v0y = (dy + 0.5 * g * (flightTime ** 2)) / flightTime;
+
+      let startTime = null;
+      function animateBall(timestamp) {
+        if (!startTime) startTime = timestamp;
+        const elapsed = (timestamp - startTime) / 1000;
+        if (elapsed <= flightTime) {
+          const xPos = startX + v0x * elapsed;
+          const yPos = startY + v0y * elapsed - 0.5 * g * (elapsed ** 2);
+          newBall.style.left = xPos + 'px';
+          newBall.style.bottom = yPos + 'px';
+          requestAnimationFrame(animateBall);
+        } else {
+          judgeShot();
+          setTimeout(() => {
+            newBall.remove();
+          }, 300);
+        }
+      }
+      requestAnimationFrame(animateBall);
+    });
+
+    // ===== シュート成功判定 =====
+    function judgeShot() {
+      const probability = getSuccessProbability(gaugeValue);
+      if (Math.random() < probability) {
+        score++;
+        scoreBoard.textContent = 'スコア: ' + score;
+        resultMessage.textContent = "Shoot!";
+      } else {
+        resultMessage.textContent = "False...";
+      }
+      resultMessage.style.opacity = "1";
+      setTimeout(() => {
+        resultMessage.style.opacity = "0";
+      }, 800);
+    }
+
+    // ===== 再スタート =====
+    restartButton.addEventListener('click', () => {
+      clearInterval(timerInterval);
+      clearInterval(gaugeInterval);
+      startButton.style.display = 'none';
+      restartButton.style.display = 'none';
+      initGame();
+    });
+
+    // ===== 初回ゲーム開始 =====
+    startButton.addEventListener('click', () => {
+      popup.style.display = 'none';
+      initGame();
+    });
+  </script>
+</body>
+</html>
